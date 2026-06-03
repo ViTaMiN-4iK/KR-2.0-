@@ -1,0 +1,80 @@
+[project]
+name = "ueba-system"
+version = "0.1.0"
+description = "UEBA - User and Entity Behavior Analytics System"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Student", email = "student@university.edu"}
+]
+keywords = ["ueba", "anomaly-detection", "security", "machine-learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.5.0",
+    "elasticsearch>=8.15.0",
+    "flask>=3.1.0",
+    "jinja2>=3.1.0",
+    "reportlab>=4.2.0",
+    "httpx>=0.27.0",
+    "python-multipart>=0.0.12",
+    "loguru>=0.7.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "bandit>=1.7.10",
+    "ruff>=0.7.0",
+    "mypy>=1.14.0",
+    "pre-commit>=4.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
+
+[tool.bandit]
+targets = ["src", "tests", "data"]
+exclude = ["tests/fixtures"]
+skips = ["B101", "B603"]
+
+[tool.ruff]
+src = ["src", "tests", "data"]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "ANN"]
+ignore = ["ANN101", "ANN102", "B008"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
