@@ -1,0 +1,70 @@
+@startuml
+!theme plain
+
+title UEBA System - Sequence Diagram (Anomaly Detection)
+
+actor Analyst
+participant "Web UI\n(Flask)" as WEB
+participant "REST API\n(FastAPI)" as API
+participant "Alert Manager" as AM
+participant "Anomaly Detector\n(ML)" as ML
+participant "Webhook\nSender" as WH
+participant "PDF\nGenerator" as PDF
+
+== Data Pipeline ==
+
+DATA_GEN -> CSV : generate_events()
+DATA_GEN -> CSV : generate_users()
+CSV -> ML : train(model_type=IF)
+ML -> ML : evaluate(all models)
+ML -> ML : select_best(F1-score)
+ML -> API : detector.trained = True
+
+== Anomaly Detection ==
+
+note over WEB, ML
+  Периодическая проверка новых событий
+end note
+
+API -> ML : detect(events)
+ML -> ML : feature_transform()
+ML -> ML : predict(X)
+ML -> API : List[AnomalyAlert]
+
+alt critical/high anomaly
+    API -> AM : add_alert(alert)
+    AM -> WH : send_alert(alert)
+    WH -> EXT : POST webhook
+end
+
+API -> WEB : alerts list
+
+== Investigation ==
+
+Analyst -> WEB : opens /alerts/{id}
+WEB -> API : GET /alerts/{id}
+API -> AM : get_alert(id)
+AM -> API : alert details
+API -> WEB : alert + user events
+
+Analyst -> WEB : updates status
+WEB -> API : PATCH /alerts/{id}
+API -> AM : update_alert_status()
+AM -> AM : save
+
+== Report Generation ==
+
+Analyst -> WEB : click "Generate PDF"
+WEB -> API : POST /reports/generate
+API -> ML : get_user_context()
+API -> PDF : generate_alert_report(alert)
+PDF -> PDF : build PDF document
+PDF -> API : pdf_path
+API -> WEB : { pdf_url }
+
+Analyst -> WEB : downloads PDF
+WEB -> API : GET /reports/download/{id}
+API -> API : serve PDF file
+API -> Analyst : PDF file
+
+@enduml

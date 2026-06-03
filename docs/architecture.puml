@@ -1,0 +1,58 @@
+@startuml
+!theme plain
+
+title UEBA System - Component Architecture
+
+package "Data Layer" {
+    [Synthetic Data Generator] as DG
+    [CSV/JSON Files] as CSV
+    [Elasticsearch] as ES
+}
+
+package "Processing Layer" {
+    [Data Loader] as DL
+    [Feature Engineer] as FE
+}
+
+package "ML Layer" {
+    [Anomaly Detector] as AD
+    database "ML Models" as ML {
+        [Isolation Forest]
+        [One-Class SVM]
+        [DBSCAN]
+        [Local Outlier Factor]
+    }
+}
+
+package "Alert Layer" {
+    [Alert Manager] as AM
+    [Webhook Sender] as WH
+    [PDF Generator] as PDF
+}
+
+package "API Layer" {
+    [FastAPI] as API
+    [Flask Web UI] as WEB
+}
+
+package "Visualization" {
+    [Kibana Dashboards]
+    [Web Browser]
+}
+
+' Connections
+DG --> CSV : generates
+CSV --> DL : loads
+ES --> DL : indexes
+DL --> FE : transforms
+FE --> AD : features
+AD --> ML : trains
+AD --> AM : creates alerts
+AM --> WH : sends webhook
+AM --> PDF : generates reports
+AM --> ES : stores
+ES --> API : queries
+API --> WEB : serves
+ES --> Kibana : visualizes
+
+@enduml
