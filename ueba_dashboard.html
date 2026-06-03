@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UEBA Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    padding: 20px;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  header h1 {
+    color: #00d4ff;
+    font-size: 1.8rem;
+    font-weight: 600;
+  }
+  header p {
+    color: #888;
+    font-size: 0.85rem;
+    margin-top: 4px;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 10px;
+    padding: 16px 20px;
+    text-align: center;
+  }
+  .stat-card .value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #00d4ff;
+  }
+  .stat-card .label {
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card h3 {
+    font-size: 0.85rem;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #0f3460;
+  }
+  .card canvas {
+    max-height: 220px;
+  }
+  .card.full { grid-column: 1 / -1; }
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 150px;
+    color: #555;
+    font-size: 0.9rem;
+  }
+  .error-msg {
+    color: #ff6b6b;
+    font-size: 0.8rem;
+    padding: 10px;
+    background: #1a0a0a;
+    border-radius: 6px;
+    margin: 8px 0;
+  }
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>UEBA Security Dashboard</h1>
+  <p>User and Entity Behavior Analytics — Elasticsearch data</p>
+</header>
+
+<div class="stats" id="stats">
+  <div class="stat-card"><div class="value" id="s-events">—</div><div class="label">Total Events</div></div>
+  <div class="stat-card"><div class="value" id="s-alerts">—</div><div class="label">Alerts</div></div>
+  <div class="stat-card"><div class="value" id="s-users">—</div><div class="label">Users</div></div>
+  <div class="stat-card"><div class="value" id="s-critical">—</div><div class="label">Critical Alerts</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Alerts by Severity</h3>
+    <canvas id="chart-severity"></canvas>
+  </div>
+  <div class="card">
+    <h3>Alerts by Risk Level</h3>
+    <canvas id="chart-risk-level"></canvas>
+  </div>
+  <div class="card">
+    <h3>Top 10 Users by Alert Count</h3>
+    <canvas id="chart-top-users"></canvas>
+  </div>
+  <div class="card">
+    <h3>Events by Hour of Day</h3>
+    <canvas id="chart-by-hour"></canvas>
+  </div>
+  <div class="card">
+    <h3>Events by Day of Week</h3>
+    <canvas id="chart-by-dow"></canvas>
+  </div>
+  <div class="card">
+    <h3>Alerts by Detection Model</h3>
+    <canvas id="chart-model"></canvas>
+  </div>
+  <div class="card full">
+    <h3>Risk Score Over Time</h3>
+    <canvas id="chart-risk-time"></canvas>
+  </div>
+</div>
+
+<script>
+const ES_URL = 'http://localhost:9200';
+
+async function esQuery(index, body) {
+  const resp = await fetch(`${ES_URL}/${index}/_search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return resp.json();
+}
+
+async function esCount(index) {
+  const resp = await fetch(`${ES_URL}/${index}/_count`);
+  const d = await resp.json();
+  return d.count || 0;
+}
+
+function aggChart(canvasId, type, data, options = {}) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const cfg = {
+    type,
+    data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { labels: { color: '#aaa', font: { size: 11 } } },
+        tooltip: { backgroundColor: '#1a1a2e', titleColor: '#00d4ff', bodyColor: '#ccc' },
+      },
+      scales: type !== 'pie' && type !== 'doughnut' ? {
+        x: { ticks: { color: '#888' }, grid: { color: '#1a1a2e' } },
+        y: { ticks: { color: '#888' }, grid: { color: '#1a1a2e' } },
+      } : undefined,
+      ...options,
+    },
+  };
+  return new Chart(ctx, cfg);
+}
+
+function pieColors(n) {
+  const palette = ['#00d4ff','#ff6b6b','#ffd93d','#6bcb77','#c77dff','#ff9a3c','#74c0fc','#f8b500'];
+  return Array.from({length: n}, (_, i) => palette[i % palette.length]);
+}
+
+async function main() {
+  // ── Counts ─────────────────────────────────────────────────
+  try {
+    const [ev, al, us, crit] = await Promise.all([
+      esCount('ueba-events'),
+      esCount('ueba-alerts'),
+      esCount('ueba-users'),
+      esQuery('ueba-alerts', { size: 0, query: { term: { severity: 'critical' } } }).then(r => r.hits.total.value),
+    ]);
+    document.getElementById('s-events').textContent = ev.toLocaleString();
+    document.getElementById('s-alerts').textContent = al.toLocaleString();
+    document.getElementById('s-users').textContent = us.toLocaleString();
+    document.getElementById('s-critical').textContent = crit.toLocaleString();
+  } catch(e) {
+    document.querySelectorAll('.stat-card .value').forEach(el => el.textContent = 'ERR');
+  }
+
+  // ── Severity pie ───────────────────────────────────────────
+  try {
+    const r = await esQuery('ueba-alerts', {
+      size: 0,
+      aggs: { by_severity: { terms: { field: 'severity', size: 10 } } }
+    });
+    const buckets = r.aggregations?.by_severity?.buckets || [];
+    const severityIndex = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sorted = [...buckets].sort((a, b) => (severityIndex[a.key] ?? 9) - (severityIndex[b.key] ?? 9));
+    aggChart('chart-severity', 'pie', {
+      labels: sorted.map(b => b.key),
+      datasets: [{ data: sorted.map(b => b.doc_count), backgroundColor: colors.slice(0, sorted.length) }],
+    });
+  } catch(e) { document.getElementById('chart-severity').parentElement.insertAdjacentHTML('beforeend', '<div class="error-msg">Failed to load</div>'); }
+
+  // ── Risk level pie ─────────────────────────────────────────
+  try {
+    const r = await esQuery('ueba-alerts', {
+      size: 0,
+      aggs: { by_risk: { terms: { field: 'risk_level', size: 6 } } }
+    });
+    const buckets = r.aggregations?.by_risk?.buckets || [];
+    aggChart('chart-risk-level', 'doughnut', {
+      labels: buckets.map(b => b.key),
+      datasets: [{ data: buckets.map(b => b.doc_count), backgroundColor: pieColors(buckets.length) }],
+    });
+  } catch(e) { document.getElementById('chart-risk-level').parentElement.insertAdjacentHTML('beforeend', '<div class="error-msg">Failed to load</div>'); }
+
+  // ── Top users bar ──────────────────────────────────────────
+  try {
+    const r = await esQuery('ueba-alerts', {
+      size: 0,
+      aggs: { by_user: { terms: { field: 'username', size: 10 } } }
+    });
+    const buckets = r.aggregations?.by_user?.buckets || [];
+    aggChart('chart-top-users', 'bar', {
+      labels: buckets.map(b => b.key),
+      datasets: [{ label: 'Alerts', data: buckets.map(b => b.doc_count), backgroundColor: '#00d4ff88', borderColor: '#00d4ff' }],
+    }, { indexAxis: 'y' });
+  } catch(e) { document.getElementById('chart-top-users').parentElement.insertAdjacentHTML('beforeend', '<div class="error-msg">Failed to load</div>'); }
+
+  // ── Events by hour ─────────────────────────────────────────
+  try {
+    const r = await esQuery('ueba-events', {
+      size: 0,
+      aggs: { by_hour: { histogram: { field: 'hour', interval: 1 } } }
+    });
+    const buckets = r.aggregations?.by_hour?.buckets || [];
+    const hourMap = {};
+    buckets.forEach(b => hourMap[b.key] = b.doc_count);
+    const labels = Array.from({length: 24}, (_, i) => i + ':00');
+    const data = labels.map(h => hourMap[parseInt(h)] || 0);
+    const bgColor = data.map(v => v > 0 ? '#ff6b6b88' : '#00d4ff11');
+    const bdColor = data.map(v => v > 0 ? '#ff6b6b' : '#00d4ff33');
+    aggChart('chart-by-hour', 'bar', {
+      labels,
+      datasets: [{ label: 'Events', data, backgroundColor: bgColor, borderColor: bdColor, borderWidth: 1 }],
+    });
+  } catch(e) { document.getElementById('chart-by-hour').parentElement.insertAdjacentHTML('beforeend', '<div class="error-msg">Failed to load</div>'); }
+
+  // ── Events by day of week ──────────────────────────────────
+  try {
+    const r = await esQuery('ueba-events', {
+      size: 0,
+      aggs: { by_dow: { terms: { field: 'day_of_week', size: 7 } } }
+    });
+    const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const buckets = r.aggregations?.by_dow?.buckets || [];
+    const sorted = buckets.sort((a, b) => a.key - b.key);
+    const bg = sorted.map(b => b.key >= 5 ? '#ff6b6b88' : '#00d4ff88');
+    const bd = sorted.map(b => b.key >= 5 ? '#ff6b6b' : '#00d4ff');
+    aggChart('chart-by-dow', 'bar', {
+      labels: sorted.map(b => DOW[b.key] || b.key),
+      datasets: [{ label: 'Events', data: sorted.map(b => b.doc_count), backgroundColor: bg, borderColor: bd, borderWidth: 1 }],
+    });
+  } catch(e) { document.getElementById('chart-by-dow').parentElement.insertAdjacentHTML('beforeend', '<div class="error-msg">Failed to load</div>'); }
+
+  // ── Detection model ────────────────────────────────────────
+  try {
+    const r = await esQuery('ueba-alerts', {
+      size: 0,
+      aggs: { by_model: { terms: { field: 'detected_by_model', size: 10 } } }
+    });
+    const buckets = r.aggregations?.by_model?.buckets || [];
+    aggChart('chart-model', 'pie', {
+      labels: buckets.map(b => b.key),
+      datasets: [{ data: buckets.map(b => b.doc_count), backgroundColor: pieColors(buckets.length) }],
+    });
+  } catch(e) { document.getElementById('chart-model').parentElement.insertAdjacentHTML('beforeend', '<div class="error-msg">Failed to load</div>'); }
+
+  // ── Risk score over time ────────────────────────────────────
+  try {
+    const r = await esQuery('ueba-events', {
+      size: 0,
+      aggs: {
+        over_time: {
+          date_histogram: { field: 'timestamp', fixed_interval: '1d', min_doc_count: 0 },
+          aggs: {
+            avg_risk: { avg: { field: 'risk_score' } }
+          }
+        }
+      }
+    });
+    const buckets = r.aggregations?.over_time?.buckets || [];
+    aggChart('chart-risk-time', 'line', {
+      labels: buckets.map(b => b.key_as_string),
+      datasets: [{
+        label: 'Avg Risk Score',
+        data: buckets.map(b => +(b.avg_risk?.value || 0).toFixed(3)),
+        borderColor: '#00d4ff',
+        backgroundColor: '#00d4ff22',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+      }],
+    }, {
+      scales: {
+        x: { type: 'time', time: { unit: 'day' }, ticks: { color: '#888' }, grid: { color: '#1a1a2e' } },
+        y: { min: 0, max: 1, ticks: { color: '#888' }, grid: { color: '#1a1a2e' } },
+      },
+    });
+  } catch(e) { document.getElementById('chart-risk-time').parentElement.insertAdjacentHTML('beforeend', '<div class="error-msg">Failed to load</div>'); }
+}
+
+main();
+</script>
+</body>
+</html>
