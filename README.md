@@ -232,3 +232,5 @@ pytest tests/ --cov=src --cov-report=term-missing --cov-report=html
 # Форматирование кода
 ruff format .
 ruff check --fix .
+```
+# KR-2.0

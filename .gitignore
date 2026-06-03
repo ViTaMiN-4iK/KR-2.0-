@@ -137,13 +137,10 @@ cython_debug/
 *.swo
 *~
 
-# Course project document (not generated code)
-*.pdf
-
-# Project specific (generated data)
+# Project specific
 logs/
+*.pdf
 data/*.csv
 data/*.json
-data/reports/
 models/
 alerts_cache/
