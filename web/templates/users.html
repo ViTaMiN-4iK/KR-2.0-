@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Пользователи — UEBA{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Профили пользователей</h1>
+    <p class="page-subtitle">{{ total }} пользователей под наблюдением</p>
+</div>
+
+<form method="get" class="filters-bar">
+    <span class="filter-label">Фильтры:</span>
+    <div class="form-group">
+        <label>Статус риска</label>
+        <select name="risk_status" onchange="this.form.submit()">
+            <option value="">Все</option>
+            <option value="normal" {% if filters.risk_status == 'normal' %}selected{% endif %}>Нормальный</option>
+            <option value="suspicious" {% if filters.risk_status == 'suspicious' %}selected{% endif %}>Подозрительный</option>
+            <option value="compromised" {% if filters.risk_status == 'compromised' %}selected{% endif %}>Скомпрометирован</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Роль</label>
+        <select name="role" onchange="this.form.submit()">
+            <option value="">Все</option>
+            <option value="developer" {% if filters.role == 'developer' %}selected{% endif %}>Разработчик</option>
+            <option value="analyst" {% if filters.role == 'analyst' %}selected{% endif %}>Аналитик</option>
+            <option value="manager" {% if filters.role == 'manager' %}selected{% endif %}>Менеджер</option>
+            <option value="admin" {% if filters.role == 'admin' %}selected{% endif %}>Администратор</option>
+            <option value="support" {% if filters.role == 'support' %}selected{% endif %}>Поддержка</option>
+        </select>
+    </div>
+    {% if filters.risk_status or filters.role %}
+    <a href="{{ url_for('users.list_users') }}" class="btn btn-secondary btn-sm" style="align-self: flex-end;">Сбросить</a>
+    {% endif %}
+</form>
+
+<div class="card">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Пользователь</th>
+                    <th>Роль</th>
+                    <th>Отдел</th>
+                    <th>Событий</th>
+                    <th>Действий</th>
+                    <th>Локаций</th>
+                    <th>Макс. риск</th>
+                    <th>Статус</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr class="clickable-row" style="cursor: pointer;" onclick="window.location='{{ url_for('users.user_profile', user_id=user.user_id) }}'">
+                    <td>
+                        <strong>{{ user.username }}</strong><br>
+                        <small style="color: var(--text-muted)">{{ user.user_id }}</small>
+                    </td>
+                    <td>{{ user.role }}</td>
+                    <td>{{ user.department }}</td>
+                    <td>{{ user.total_events }}</td>
+                    <td>{{ user.unique_actions }}</td>
+                    <td>{{ user.unique_locations }}</td>
+                    <td>
+                        <span style="font-weight: 600; color: {% if user.anomaly_score_max > 0.7 %}var(--risk-critical){% elif user.anomaly_score_max > 0.4 %}var(--risk-medium){% else %}var(--risk-low){% endif %};">
+                            {{ "%.4f"|format(user.anomaly_score_max) }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge badge-{% if user.risk_status == 'compromised' %}critical{% elif user.risk_status == 'suspicious' %}high{% else %}low{% endif %}">
+                            {% if user.risk_status == 'compromised' %}Скомпрометирован{% elif user.risk_status == 'suspicious' %}Подозрительный{% else %}Нормальный{% endif %}
+                        </span>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8">
+                        <div class="empty-state">
+                            <p>Пользователи не найдены.</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

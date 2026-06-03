@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}Расследование алерта — UEBA{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <a href="{{ url_for('alerts.list_alerts') }}" style="color: var(--text-muted); text-decoration: none; font-size: 0.85rem;">← К списку алертов</a>
+        <h1 class="page-title" style="margin-top: 8px;">Расследование алерта</h1>
+    </div>
+    <div class="actions">
+        <a href="{{ url_for('alerts.generate_report', alert_id=alert.alert_id) }}" class="btn btn-secondary">Скачать PDF-отчёт</a>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <!-- Left column -->
+    <div>
+        <!-- Alert info -->
+        <div class="card detail-section">
+            <div class="detail-section">
+                <h3>Информация об алерте</h3>
+                <table class="detail-table">
+                    <tr>
+                        <td>ID алерта</td>
+                        <td><code>{{ alert.alert_id }}</code></td>
+                    </tr>
+                    <tr>
+                        <td>ID события</td>
+                        <td><code>{{ alert.event_id }}</code></td>
+                    </tr>
+                    <tr>
+                        <td>Уровень риска</td>
+                        <td><span class="badge badge-{{ alert.risk_level }}">{{ alert.risk_level|upper }}</span></td>
+                    </tr>
+                    <tr>
+                        <td>Скор аномальности</td>
+                        <td>
+                            <strong>{{ "%.4f"|format(alert.anomaly_score) }}</strong>
+                            <div class="score-bar" style="width: 120px; margin-top: 4px;">
+                                <div class="score-bar-fill" style="width: {{ (alert.anomaly_score * 100)|int }}%; background: {% if alert.risk_level == 'critical' %}var(--risk-critical){% elif alert.risk_level == 'high' %}var(--risk-high){% elif alert.risk_level == 'medium' %}var(--risk-medium){% else %}var(--risk-low){% endif %};"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Статус</td>
+                        <td><span class="badge badge-{{ alert.status }}">{{ alert.status|replace('_', ' ') }}</span></td>
+                    </tr>
+                    <tr>
+                        <td>Обнаружено моделью</td>
+                        <td><code>{{ alert.detected_by_model }}</code></td>
+                    </tr>
+                    <tr>
+                        <td>Создан</td>
+                        <td>{{ alert.created_at|datetime_format }}</td>
+                    </tr>
+                    <tr>
+                        <td>Обновлён</td>
+                        <td>{{ alert.updated_at|datetime_format }}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="detail-section">
+                <h3>Причина аномалии</h3>
+                <div class="reason-box">{{ alert.reason }}</div>
+            </div>
+        </div>
+
+        <!-- Anomaly context: identified risk factors -->
+        {% if anomaly_items %}
+        <div class="card detail-section">
+            <h3>Выявленные факторы риска</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
+                Обнаруженные отклонения от типичного профиля поведения пользователя
+            </p>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Параметр</th>
+                            <th>Обнаружено</th>
+                            <th>Обычное значение</th>
+                            <th>Пояснение</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in anomaly_items %}
+                        <tr>
+                            <td><strong>{{ item.label }}</strong></td>
+                            <td><span class="badge badge-critical">{{ item.actual }}</span></td>
+                            <td style="color: var(--text-muted);">{{ item.baseline }}</td>
+                            <td><small>{{ item.detail }}</small></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- User timeline -->
+        {% if user_events %}
+        <div class="card detail-section">
+            <h3>Последние события пользователя ({{ user_events|length }})</h3>
+            <div class="timeline" style="margin-top: 16px;">
+                {% for event in user_events[:20] %}
+                <div class="timeline-item">
+                    <div class="timeline-time">{{ event.timestamp|datetime_format }}</div>
+                    <div class="timeline-action">{{ event.action }}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
+                        {{ event.location_city }} | {{ event.resource }} | {{ event.ip_address }}
+                        {% if event.risk_score > 0.3 %}
+                        <span class="badge badge-{% if event.risk_score > 0.7 %}high{% elif event.risk_score > 0.4 %}medium{% else %}low{% endif %}" style="margin-left: 6px;">
+                            risk: {{ "%.2f"|format(event.risk_score) }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Right column -->
+    <div>
+        <!-- User profile -->
+        {% if user_profile %}
+        <div class="card detail-section">
+            <h3>Профиль пользователя</h3>
+            <table class="detail-table" style="margin-top: 12px;">
+                <tr>
+                    <td>ID пользователя</td>
+                    <td><strong>{{ user_profile.user_id }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Имя пользователя</td>
+                    <td>{{ user_profile.username }}</td>
+                </tr>
+                <tr>
+                    <td>Полное имя</td>
+                    <td>{{ user_profile.full_name }}</td>
+                </tr>
+                <tr>
+                    <td>Роль</td>
+                    <td>{{ user_profile.role }}</td>
+                </tr>
+                <tr>
+                    <td>Отдел</td>
+                    <td>{{ user_profile.department }}</td>
+                </tr>
+                <tr>
+                    <td>Всего событий</td>
+                    <td><strong>{{ user_profile.total_events }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Уникальных действий</td>
+                    <td>{{ user_profile.unique_actions }}</td>
+                </tr>
+                <tr>
+                    <td>Локаций</td>
+                    <td>{{ user_profile.unique_locations }}</td>
+                </tr>
+                <tr>
+                    <td>Статус риска</td>
+                    <td>
+                        <span class="badge badge-{% if user_profile.risk_status == 'compromised' %}critical{% elif user_profile.risk_status == 'suspicious' %}high{% else %}low{% endif %}">
+                            {{ user_profile.risk_status }}
+                        </span>
+                    </td>
+                </tr>
+            </table>
+            <div style="margin-top: 12px;">
+                <a href="{{ url_for('users.user_profile', user_id=alert.user_id) }}" class="btn btn-secondary btn-sm">Полный профиль</a>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Actions panel -->
+        <div class="card detail-section">
+            <h3>Обновить статус</h3>
+            <form method="post" action="{{ url_for('alerts.update_alert', alert_id=alert.alert_id) }}" style="margin-top: 12px;">
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>Новый статус</label>
+                    <select name="status" required>
+                        <option value="open" {% if alert.status == 'open' %}selected{% endif %}>Открыт</option>
+                        <option value="investigating" {% if alert.status == 'investigating' %}selected{% endif %}>На расследовании</option>
+                        <option value="confirmed" {% if alert.status == 'confirmed' %}selected{% endif %}>Подтверждён</option>
+                        <option value="false_positive" {% if alert.status == 'false_positive' %}selected{% endif %}>Ложное срабатывание</option>
+                        <option value="resolved" {% if alert.status == 'resolved' %}selected{% endif %}>Разрешён</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>Заметки по расследованию</label>
+                    <textarea name="notes" rows="4" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.875rem;" placeholder="Опишите результаты и принятые меры...">{{ alert.investigation_notes }}</textarea>
+                </div>
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>Кем разрешено</label>
+                    <input type="text" name="resolved_by" placeholder="Имя аналитика" value="{{ alert.resolved_by }}">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Обновить статус</button>
+            </form>
+        </div>
+
+        <!-- Key features -->
+        {% if alert.features %}
+        <div class="card detail-section">
+            <h3>Ключевые признаки</h3>
+            <div class="table-wrapper" style="margin-top: 8px;">
+                <table style="font-size: 0.8rem;">
+                    {% for key, value in alert.features.items() %}
+                    <tr>
+                        <td style="padding: 4px 8px;">{{ key }}</td>
+                        <td style="padding: 4px 8px; text-align: right; font-family: monospace;">{{ "%.4f"|format(value) }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

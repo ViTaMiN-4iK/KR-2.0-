@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Алерты — UEBA{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div>
+        <h1 class="page-title">Алерты</h1>
+        <p class="page-subtitle">Найдено {{ total }} алертов</p>
+    </div>
+</div>
+
+<form method="get" class="filters-bar">
+    <span class="filter-label">Фильтры:</span>
+    <div class="form-group">
+        <label>Статус</label>
+        <select name="status" onchange="this.form.submit()">
+            <option value="">Все</option>
+            <option value="open" {% if filters.status == 'open' %}selected{% endif %}>Открыт</option>
+            <option value="investigating" {% if filters.status == 'investigating' %}selected{% endif %}>На расследовании</option>
+            <option value="confirmed" {% if filters.status == 'confirmed' %}selected{% endif %}>Подтверждён</option>
+            <option value="resolved" {% if filters.status == 'resolved' %}selected{% endif %}>Разрешён</option>
+            <option value="false_positive" {% if filters.status == 'false_positive' %}selected{% endif %}>Ложное срабатывание</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Уровень риска</label>
+        <select name="risk_level" onchange="this.form.submit()">
+            <option value="">Все</option>
+            <option value="critical" {% if filters.risk_level == 'critical' %}selected{% endif %}>Критический</option>
+            <option value="high" {% if filters.risk_level == 'high' %}selected{% endif %}>Высокий</option>
+            <option value="medium" {% if filters.risk_level == 'medium' %}selected{% endif %}>Средний</option>
+            <option value="low" {% if filters.risk_level == 'low' %}selected{% endif %}>Низкий</option>
+        </select>
+    </div>
+    {% if filters.status or filters.risk_level %}
+    <a href="{{ url_for('alerts.list_alerts') }}" class="btn btn-secondary btn-sm" style="align-self: flex-end;">Сбросить</a>
+    {% endif %}
+</form>
+
+{% if stats and (stats.open > 0 or stats.investigating > 0) %}
+<div class="stats-grid" style="margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-label">Открыты</div>
+        <div class="stat-value danger">{{ stats.open }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">На расследовании</div>
+        <div class="stat-value warning">{{ stats.investigating }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Подтверждены</div>
+        <div class="stat-value danger">{{ stats.confirmed }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Разрешены</div>
+        <div class="stat-value success">{{ stats.resolved }}</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID алерта</th>
+                    <th>Пользователь</th>
+                    <th>Риск</th>
+                    <th>Скор</th>
+                    <th>Причина</th>
+                    <th>Статус</th>
+                    <th>Создан</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for alert in alerts %}
+                <tr>
+                    <td><code style="font-size: 0.75rem;">{{ alert.alert_id[:8] }}...</code></td>
+                    <td>
+                        <strong>{{ alert.username }}</strong><br>
+                        <small style="color: var(--text-muted)">{{ alert.user_id }}</small>
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ alert.risk_level }}">{{ alert.risk_level }}</span>
+                    </td>
+                    <td>
+                        <span style="font-weight: 600; color: {% if alert.anomaly_score > 0.7 %}var(--risk-critical){% elif alert.anomaly_score > 0.4 %}var(--risk-medium){% else %}var(--risk-low){% endif %};">
+                            {{ "%.4f"|format(alert.anomaly_score) }}
+                        </span>
+                    </td>
+                    <td style="max-width: 200px;">
+                        <small>{{ alert.reason|truncate(50) }}</small>
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ alert.status }}">{{ alert.status|replace('_', ' ') }}</span>
+                    </td>
+                    <td>
+                        <small>{{ alert.created_at|datetime_format }}</small>
+                    </td>
+                    <td>
+                        <div class="actions">
+                            <a href="{{ url_for('alerts.alert_detail', alert_id=alert.alert_id) }}" class="btn btn-primary btn-sm">Расследовать</a>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8">
+                        <div class="empty-state">
+                            <p>Алерты не найдены.</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if total > page_size %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ url_for('alerts.list_alerts', page=page-1, status=filters.status, risk_level=filters.risk_level) }}">&laquo; Назад</a>
+    {% endif %}
+    <span>Страница {{ page }}</span>
+    {% if page * page_size < total %}
+    <a href="{{ url_for('alerts.list_alerts', page=page+1, status=filters.status, risk_level=filters.risk_level) }}">Далее &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

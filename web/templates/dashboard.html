@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Панель мониторинга — UEBA{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Панель мониторинга</h1>
+    <p class="page-subtitle">Мониторинг аномалий поведения пользователей в реальном времени</p>
+</div>
+
+{% if error %}
+<div class="flash flash-error">{{ error }}</div>
+{% endif %}
+
+{% if stats %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Всего алертов</div>
+        <div class="stat-value">{{ stats.total }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Открыты</div>
+        <div class="stat-value danger">{{ stats.open if stats.open is not none else 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">На расследовании</div>
+        <div class="stat-value warning">{{ stats.investigating if stats.investigating is not none else 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Разрешены</div>
+        <div class="stat-value success">{{ stats.resolved if stats.resolved is not none else 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Средний скор риска</div>
+        <div class="stat-value">{{ "%.3f"|format(stats.avg_score) }}</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="detail-grid">
+    <div class="card">
+        <div class="card-header">
+            Последние алерты
+            <a href="{{ url_for('alerts.list_alerts') }}" class="btn btn-secondary btn-sm">Все алерты</a>
+        </div>
+        <div class="card-body">
+            {% if recent_alerts %}
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Пользователь</th>
+                            <th>Риск</th>
+                            <th>Причина</th>
+                            <th>Время</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for alert in recent_alerts %}
+                        <tr>
+                            <td>
+                                <strong>{{ alert.username }}</strong><br>
+                                <small style="color: var(--text-muted)">{{ alert.user_id }}</small>
+                            </td>
+                            <td>
+                                <span class="badge badge-{{ alert.risk_level }}">{{ alert.risk_level }}</span>
+                                <div class="score-bar" style="width: 80px; margin-top: 4px;">
+                                    <div class="score-bar-fill" style="width: {{ (alert.anomaly_score * 100)|int }}%; background: {% if alert.risk_level == 'critical' %}var(--risk-critical){% elif alert.risk_level == 'high' %}var(--risk-high){% elif alert.risk_level == 'medium' %}var(--risk-medium){% else %}var(--risk-low){% endif %};"></div>
+                                </div>
+                            </td>
+                            <td style="max-width: 200px;">
+                                <small>{{ alert.reason|truncate(60) }}</small>
+                            </td>
+                            <td>
+                                <small>{{ alert.timestamp|datetime_format }}</small>
+                            </td>
+                            <td>
+                                <a href="{{ url_for('alerts.alert_detail', alert_id=alert.alert_id) }}" class="btn btn-primary btn-sm">Расследовать</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <p>Алертов не найдено. Система работает в штатном режиме.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div>
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">Распределение по риску</div>
+            <div class="card-body">
+                {% if stats.by_risk_level %}
+                {% for level, count in stats.by_risk_level.items() %}
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span class="badge badge-{{ level }}">{{ level }}</span>
+                    <span style="font-weight: 600;">{{ count }}</span>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Нет данных</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Распределение по статусу</div>
+            <div class="card-body">
+                {% if stats.by_status %}
+                {% for status, count in stats.by_status.items() %}
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span class="badge badge-{{ status }}">{{ status|replace('_', ' ') }}</span>
+                    <span style="font-weight: 600;">{{ count }}</span>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Нет данных</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
