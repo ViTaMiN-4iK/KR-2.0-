@@ -60,9 +60,9 @@ class AnomalyDetector:
     """Основной класс обнаружения аномалий в поведении пользователей."""
 
     RISK_THRESHOLDS = {
-        "critical": 0.7,
-        "high": 0.5,
-        "medium": 0.3,
+        "critical": 0.9,
+        "high": 0.7,
+        "medium": 0.5,
         "low": 0.0,
     }
 
