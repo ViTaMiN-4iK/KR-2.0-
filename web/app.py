@@ -15,7 +15,6 @@ from flask import (
     jsonify,
     flash,
 )
-import httpx
 from loguru import logger
 
 

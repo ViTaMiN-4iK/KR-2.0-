@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import requests
+
 from flask import Blueprint, render_template, request, redirect, url_for, current_app, flash
-import httpx
 
 alerts_bp = Blueprint("alerts", __name__, url_prefix="/alerts")
 
 
 def get_api_url() -> str:
-    return current_app.config.get("API_BASE_URL", "http://localhost:8000")
+    try:
+        return current_app.config.get("API_BASE_URL", "http://localhost:8000")
+    except RuntimeError:
+        return "http://localhost:8000"
 
 
 @alerts_bp.route("/")
@@ -25,12 +29,12 @@ def list_alerts():
         params["risk_level"] = risk_level
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.get(get_api_url() + "/api/alerts/", params=params)
+        with requests.Session() as s:
+            resp = s.get(get_api_url() + "/api/alerts/", params=params, timeout=10.0)
             resp.raise_for_status()
             data = resp.json()
 
-            stats_resp = client.get(get_api_url() + "/api/alerts/stats")
+            stats_resp = s.get(get_api_url() + "/api/alerts/stats", timeout=10.0)
             stats = stats_resp.json() if stats_resp.status_code == 200 else {}
 
         return render_template(
@@ -42,7 +46,7 @@ def list_alerts():
             filters={"status": status, "risk_level": risk_level},
             stats=stats,
         )
-    except httpx.ConnectError:
+    except requests.ConnectionError:
         flash("API недоступен. Проверьте, что FastAPI-сервер запущен.", "error")
         return render_template("alerts.html", alerts=[], total=0, stats={})
 
@@ -50,21 +54,22 @@ def list_alerts():
 @alerts_bp.route("/<alert_id>")
 def alert_detail(alert_id: str):
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with requests.Session() as s:
             api = get_api_url()
-            resp = client.get(api + "/api/alerts/" + alert_id)
+            resp = s.get(api + "/api/alerts/" + alert_id, timeout=10.0)
             resp.raise_for_status()
             alert = resp.json()
 
-            user_events_resp = client.get(
+            user_events_resp = s.get(
                 api + "/api/users/" + alert["user_id"] + "/events/",
                 params={"page_size": 50},
+                timeout=10.0,
             )
             user_events = []
             if user_events_resp.status_code == 200:
                 user_events = user_events_resp.json().get("events", [])
 
-            user_resp = client.get(api + "/api/users/" + alert["user_id"])
+            user_resp = s.get(api + "/api/users/" + alert["user_id"], timeout=10.0)
             user_profile = None
             if user_resp.status_code == 200:
                 user_profile = user_resp.json()
@@ -76,7 +81,7 @@ def alert_detail(alert_id: str):
             user_profile=user_profile,
             anomaly_items=alert.get("anomaly_context", {}).get("items", []),
         )
-    except httpx.ConnectError:
+    except requests.ConnectionError:
         flash("API недоступен.", "error")
         return redirect(url_for("alerts.list_alerts"))
 
@@ -92,20 +97,21 @@ def update_alert(alert_id: str):
         return redirect(url_for("alerts.alert_detail", alert_id=alert_id))
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.patch(
+        with requests.Session() as s:
+            resp = s.patch(
                 get_api_url() + "/api/alerts/" + alert_id,
                 json={
                     "status": new_status,
                     "notes": notes,
                     "resolved_by": resolved_by,
                 },
+                timeout=10.0,
             )
             resp.raise_for_status()
         flash("Статус алерта обновлён на '" + new_status + "'.", "success")
-    except httpx.ConnectError:
+    except requests.ConnectionError:
         flash("API недоступен.", "error")
-    except httpx.HTTPStatusError as e:
+    except requests.HTTPError as e:
         try:
             msg = e.response.json().get("detail", str(e))
         except Exception:
@@ -118,20 +124,22 @@ def update_alert(alert_id: str):
 @alerts_bp.route("/<alert_id>/report")
 def generate_report(alert_id: str):
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(
+        with requests.Session() as s:
+            resp = s.post(
                 get_api_url() + "/api/reports/generate",
                 json={
                     "alert_id": alert_id,
                     "include_user_events": True,
                     "include_comparison": True,
                 },
+                timeout=60.0,
             )
             resp.raise_for_status()
             report_data = resp.json()
 
-            pdf_resp = client.get(
+            pdf_resp = s.get(
                 get_api_url() + report_data["pdf_url"],
+                timeout=60.0,
             )
             pdf_resp.raise_for_status()
 
@@ -144,9 +152,9 @@ def generate_report(alert_id: str):
         )
         return response
 
-    except httpx.ConnectError:
+    except requests.ConnectionError:
         flash("API недоступен.", "error")
-    except httpx.HTTPStatusError:
+    except requests.HTTPError:
         flash("Ошибка при генерации отчёта.", "error")
 
     return redirect(url_for("alerts.alert_detail", alert_id=alert_id))

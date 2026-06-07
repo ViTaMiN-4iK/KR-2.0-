@@ -32,9 +32,8 @@ class WebhookSender:
         return self._webhook_url
 
     def send_alert(self, alert: dict[str, Any]) -> bool:
-        """Отправляет уведомление об алерте."""
+        """Sends an alert notification."""
         if not self._webhook_url:
-            logger.debug("Webhook URL not configured, skipping")
             return False
 
         payload = {

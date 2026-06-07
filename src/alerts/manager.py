@@ -131,12 +131,11 @@ class AlertManager:
             profile["risk_status"] = "normal"
 
         self._user_profiles[user_id] = profile
-        self._save_user_profiles()
+        # Сохранение делается централизованно через flush()
 
-        # Также обновляем в Elasticsearch
-        self._index_user_profile_to_es(profile)
-
-        logger.debug(f"Updated profile for user {user_id}: risk_status={profile['risk_status']}, max_score={max_score:.4f}")
+        # Only log when called for a new alert (not during startup seed)
+        # Skipping DEBUG here — too noisy when loading thousands of alerts
+        _ = profile  # unused in log path
 
     def _index_user_profile_to_es(self, profile: dict[str, Any]) -> None:
         """Индексирует профиль пользователя в Elasticsearch."""
@@ -219,8 +218,10 @@ class AlertManager:
         }
 
         self._alerts[alert_id] = alert
-        self._save_alerts()
-        self._index_to_es(alert)
+
+        # Отдельный цикл записи — только один раз после всех добавлений
+        # (вызывающий код сам решит когда сохранять)
+        # _save_alerts() и _index_to_es() убраны отсюда
 
         # Обновляем профиль пользователя
         self._update_user_profile_from_alert(
@@ -237,6 +238,14 @@ class AlertManager:
         )
 
         return alert
+
+    def flush(self) -> None:
+        """Сохраняет все изменения в файлы и ES. Вызывать после batch-операций."""
+        self._save_alerts()
+        for alert in self._alerts.values():
+            self._index_to_es(alert)
+        for profile in self._user_profiles.values():
+            self._index_user_profile_to_es(profile)
 
     def _map_risk_to_severity(self, risk_level: str) -> str:
         mapping = {
@@ -291,7 +300,6 @@ class AlertManager:
             self._alerts[alert_id]["resolved_by"] = resolved_by
 
         self._save_alerts()
-        self._index_to_es(self._alerts[alert_id])
 
         logger.info(f"Alert {alert_id} status updated to '{status}'")
         return self._alerts[alert_id]
@@ -379,22 +387,21 @@ class AlertManager:
                 if event_hour is not None and pd.notna(event_hour):
                     actual_str = (
                         f"{int(event_hour):02d}:{int((event_hour % 1) * 60):02d}"
-                        f" {'ночи' if event_hour < 6 else 'дня'}"
                     )
                 else:
-                    actual_str = "н/д"
+                    actual_str = "n/a"
 
                 mean_hour = df["hour"].mean()
                 if pd.notna(mean_hour):
-                    baseline_str = f"обычно {int(mean_hour):02d}:00–{(int(mean_hour)+9)%24:02d}:00"
+                    baseline_str = f"typically around {int(mean_hour):02d}:00"
                 else:
-                    baseline_str = "09:00–18:00 (рабочие часы)"
+                    baseline_str = "09:00–18:00 (business hours)"
 
                 deviation = abs(event_hour - mean_hour) if event_hour and pd.notna(event_hour) and pd.notna(mean_hour) else 0
-                detail = f"отклонение от типичного времени: {deviation:.1f} ч"
+                detail = f"deviation from typical time: {deviation:.1f} h"
 
                 context.append({
-                    "label": "Время активности",
+                    "label": "Activity Time",
                     "actual": actual_str,
                     "baseline": baseline_str,
                     "detail": detail,
@@ -403,10 +410,10 @@ class AlertManager:
             # --- Выходной день ---
             if _flag("is_weekend"):
                 context.append({
-                    "label": "День недели",
-                    "actual": "выходной день (сб/вс)",
-                    "baseline": "рабочий день (пн–пт)",
-                    "detail": "активность в нерабочее время",
+                    "label": "Day of Week",
+                    "actual": "weekend (Sat/Sun)",
+                    "baseline": "business day (Mon–Fri)",
+                    "detail": "activity during non-working time",
                 })
 
             # --- Объём данных ---
@@ -423,12 +430,12 @@ class AlertManager:
                     baseline_mean = bs_baseline
 
                 actual_str = self._format_bytes(float(actual_bytes) if pd.notna(actual_bytes) else 0)
-                baseline_str = f"в среднем {self._format_bytes(float(baseline_mean) if pd.notna(baseline_mean) else 0)}"
+                baseline_str = f"avg {self._format_bytes(float(baseline_mean) if pd.notna(baseline_mean) else 0)}"
                 context.append({
-                    "label": "Объём данных",
-                    "actual": f"отправлено {actual_str}",
+                    "label": "Data Volume",
+                    "actual": f"sent {actual_str}",
                     "baseline": baseline_str,
-                    "detail": f"превышение нормы в {bs:.1f}x",
+                    "detail": f"{bs:.1f}x above baseline",
                 })
 
             # --- Локация ---
@@ -440,31 +447,31 @@ class AlertManager:
                 unique_cities = df["location_city"].nunique() if "location_city" in df.columns else 0
                 baseline_cities = features.get("baseline_unique_locations", 1)
 
-                actual_str = event_city or "неизвестно"
-                baseline_str = f"{int(baseline_cities)} локация(й) обычно"
+                actual_str = event_city or "unknown"
+                baseline_str = f"typically {int(baseline_cities)} location(s)"
                 context.append({
-                    "label": "Геолокация",
-                    "actual": f"город: {actual_str}",
+                    "label": "Geolocation",
+                    "actual": f"city: {actual_str}",
                     "baseline": baseline_str,
-                    "detail": f"необычное количество уникальных локаций: {unique_cities}",
+                    "detail": f"unusual number of unique locations: {unique_cities}",
                 })
 
             # --- Неудачная попытка ---
             if _flag("is_failed"):
                 context.append({
-                    "label": "Статус действия",
-                    "actual": "неудачная попытка (failed)",
-                    "baseline": "успешное действие (success)",
-                    "detail": "многократные неудачные попытки могут указывать на атаку",
+                    "label": "Action Status",
+                    "actual": "failed attempt",
+                    "baseline": "successful action (success)",
+                    "detail": "multiple failed attempts may indicate an attack",
                 })
 
             # --- Подозрительная комбинация ---
             if _flag("suspicious_combo"):
                 context.append({
-                    "label": "Комбинация факторов",
-                    "actual": "ночь + выходной день",
-                    "baseline": "рабочее время в будний день",
-                    "detail": "критическая комбинация аномальных факторов",
+                    "label": "Factor Combination",
+                    "actual": "night + weekend",
+                    "baseline": "business hours on a weekday",
+                    "detail": "critical combination of anomalous factors",
                 })
 
             return context
@@ -482,11 +489,11 @@ class AlertManager:
 
     @staticmethod
     def _format_bytes(b: float) -> str:
-        """Форматирует байты в читаемый вид."""
+        """Formats bytes to human-readable form."""
         if b >= 1_073_741_824:
-            return f"{b / 1_073_741_824:.1f} ГБ"
+            return f"{b / 1_073_741_824:.1f} GB"
         if b >= 1_048_576:
-            return f"{b / 1_048_576:.1f} МБ"
+            return f"{b / 1_048_576:.1f} MB"
         if b >= 1024:
-            return f"{b / 1024:.1f} КБ"
-        return f"{b:.0f} Б"
+            return f"{b / 1024:.1f} KB"
+        return f"{b:.0f} B"

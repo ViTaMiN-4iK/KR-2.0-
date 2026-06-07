@@ -93,7 +93,6 @@ class AnomalyModel:
                 nu=cfg.nu,
                 kernel=cfg.kernel,
                 gamma=cfg.gamma,
-                random_state=cfg.random_state,
             )
 
         elif cfg.model_type == ModelType.DBSCAN:

@@ -103,19 +103,19 @@ def _ctx_from_features(alert: dict[str, Any]) -> list[dict[str, str]]:
     # --- Время ---
     if _flag("is_night") or features.get("hour_deviation", 0) > 3:
         context.append({
-            "label": "Время активности",
-            "actual": "ночное время (после 22:00)" if _flag("is_night") else "н/д",
-            "baseline": "09:00–18:00 (рабочие часы)",
-            "detail": "время активности выходит за пределы обычного",
+            "label": "Activity Time",
+            "actual": "nighttime (after 22:00)" if _flag("is_night") else "n/a",
+            "baseline": "09:00-18:00 (business hours)",
+            "detail": "activity time is outside normal working hours",
         })
 
     # --- Выходной день ---
     if _flag("is_weekend"):
         context.append({
-            "label": "День недели",
-            "actual": "выходной день (сб/вс)",
-            "baseline": "рабочий день (пн–пт)",
-            "detail": "активность зафиксирована в нерабочее время",
+            "label": "Day of Week",
+            "actual": "weekend (Sat/Sun)",
+            "baseline": "business day (Mon-Fri)",
+            "detail": "activity recorded during non-working time",
         })
 
     # --- Объём данных ---
@@ -126,21 +126,20 @@ def _ctx_from_features(alert: dict[str, Any]) -> list[dict[str, str]]:
         def _fmt(b):
             b = float(b)
             if b >= 1_048_576:
-                return f"{b / 1_048_576:.1f} МБ"
+                return f"{b / 1_048_576:.1f} MB"
             if b >= 1024:
-                return f"{b / 1024:.1f} КБ"
-            return f"{b:.0f} Б"
+                return f"{b / 1024:.1f} KB"
+            return f"{b:.0f} B"
 
         context.append({
-            "label": "Объём данных",
-            "actual": f"отправлено {_fmt(estimated)}",
-            "baseline": "типичный объём для этого пользователя",
-            "detail": "объём отправленных данных значительно превышает норму",
+            "label": "Data Volume",
+            "actual": f"sent {_fmt(estimated)}",
+            "baseline": "typical volume for this user",
+            "detail": "sent data volume significantly exceeds normal levels",
         })
 
     # --- Локация ---
     if _flag("unusual_location_count"):
-        # Пытаемся получить город из features
         city = ""
         for k, v in features.items():
             if "city" in k.lower() and isinstance(v, str) and v:
@@ -149,28 +148,28 @@ def _ctx_from_features(alert: dict[str, Any]) -> list[dict[str, str]]:
 
         baseline_loc = _f(features.get("baseline_unique_locations", 1))
         context.append({
-            "label": "Геолокация",
-            "actual": f"город: {city}" if city else "необычная локация",
-            "baseline": f"{int(baseline_loc)} локация(й) обычно",
-            "detail": "обнаружена новая или редкая локация для пользователя",
+            "label": "Geolocation",
+            "actual": f"city: {city}" if city else "unusual location",
+            "baseline": f"typically {int(baseline_loc)} location(s)",
+            "detail": "new or rare location detected for this user",
         })
 
     # --- Неудачная попытка ---
     if _flag("is_failed"):
         context.append({
-            "label": "Статус действия",
-            "actual": "неудачная попытка (failed)",
-            "baseline": "успешное действие (success)",
-            "detail": "неудачные попытки могут указывать на атаку методом перебора",
+            "label": "Action Status",
+            "actual": "failed attempt",
+            "baseline": "successful action",
+            "detail": "failed attempts may indicate a brute-force attack",
         })
 
     # --- Подозрительная комбинация ---
     if _flag("suspicious_combo"):
         context.append({
-            "label": "Комбинация факторов",
-            "actual": "ночь + выходной день",
-            "baseline": "рабочее время в будний день",
-            "detail": "критическая комбинация аномальных факторов",
+            "label": "Factor Combination",
+            "actual": "night + weekend",
+            "baseline": "business hours on a weekday",
+            "detail": "critical combination of anomalous factors",
         })
 
     return context

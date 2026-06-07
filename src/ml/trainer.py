@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -169,7 +170,7 @@ class ModelTrainer:
                     best_metrics = result
 
             except Exception as e:
-                logger.warning(f"  Model {model_type.value} failed: {e}")
+                logger.warning(f"  Model {model_type.value} failed: {e}\n{traceback.format_exc()}")
                 continue
 
         if best_model is None or best_metrics is None:
@@ -206,56 +207,72 @@ class ModelTrainer:
 
         # Для обучения используем только "нормальные" данные
         # (y == 0), если есть размеченные данные
+        X = np.asarray(X, dtype=np.float64)
+        y = np.asarray(y, dtype=np.int_) if y is not None else None
+
         has_labels = y is not None and len(np.unique(y)) > 1
 
-        if has_labels and model_type not in (
-            ModelType.ONE_CLASS_SVM,
-            ModelType.LOCAL_OUTLIER_FACTOR,
-        ):
-            normal_mask = y == 0
-            X_normal = X[normal_mask]
-            model.fit(X_normal)
-            predictions_raw = model.predict(X)
-
-        elif model_type == ModelType.LOCAL_OUTLIER_FACTOR:
-            if has_labels:
-                normal_mask = y == 0
+        # DBSCAN: используем labels_ напрямую (predict не поддерживается)
+        if model_type == ModelType.DBSCAN:
+            model.fit(X)
+            raw = model._model.labels_
+            predictions_raw = np.atleast_1d(np.where(raw == -1, -1, 1))
+            real_scores = np.zeros(len(predictions_raw))
+        else:
+            # Supervised или unsupervised: обучаем и предсказываем
+            if has_labels and model_type in (
+                ModelType.ISOLATION_FOREST,
+                ModelType.ONE_CLASS_SVM,
+                ModelType.LOCAL_OUTLIER_FACTOR,
+            ):
+                normal_mask = (y == 0)
                 X_normal = X[normal_mask]
                 model.fit(X_normal)
-                predictions_raw = model.predict(X)
             else:
                 model.fit(X)
-                result = model.predict(X)
-                predictions_raw = result.predictions
 
-        else:
-            model.fit(X)
-            predictions_raw = model.predict(X)
+            result = model.predict(X)
+            predictions_raw = np.atleast_1d(np.asarray(result.predictions))
+            real_scores = np.asarray(result.scores) if result.scores is not None else np.zeros(len(predictions_raw))
 
         # Формируем бинарные предсказания
         predictions = (predictions_raw == -1).astype(int)
-        true_labels = predictions  # для unsupervised по умолчанию
 
-        # Если есть истинные метки — используем их
-        if has_labels:
-            true_labels = y
-
-        accuracy = accuracy_score(true_labels, predictions)
-        precision = precision_score(true_labels, predictions, zero_division=0)
-        recall = recall_score(true_labels, predictions, zero_division=0)
-        f1 = f1_score(true_labels, predictions, zero_division=0)
-        cm = confusion_matrix(true_labels, predictions).tolist()
-
-        # Для unsupervised — помечаем как предсказания модели
+        # Создаём ModelResult
         model_result = ModelResult(
             model_type=model_type,
             predictions=predictions_raw,
-            scores=np.zeros(len(predictions_raw)),
+            scores=real_scores,
             labels=np.zeros(len(predictions_raw)),
             metadata={
                 "trained_model": model._model,
             },
         )
+
+        # Для unsupervised нет "истинных" меток.
+        # Используем contamination-порог: top-(contamination) по scores
+        # становятся pseudo-anomalies для вычисления F1/precision/recall.
+        if has_labels:
+            true_labels = y
+            accuracy = accuracy_score(true_labels, predictions)
+            precision = precision_score(true_labels, predictions, zero_division=0)
+            recall = recall_score(true_labels, predictions, zero_division=0)
+            f1 = f1_score(true_labels, predictions, zero_division=0)
+        else:
+            # Unsupervised: используем реальные scores для pseudo-labels
+            if np.any(real_scores != 0):
+                # Для IF/OCSVM/LOF: чем МЕНЬШЕ score, тем аномальнее
+                threshold_val = float(np.percentile(real_scores, self._contamination * 100))
+                pseudo_labels = (real_scores <= threshold_val).astype(int)
+            else:
+                pseudo_labels = predictions
+
+            accuracy = accuracy_score(pseudo_labels, predictions)
+            precision = precision_score(pseudo_labels, predictions, zero_division=0)
+            recall = recall_score(pseudo_labels, predictions, zero_division=0)
+            f1 = f1_score(pseudo_labels, predictions, zero_division=0)
+
+        cm = confusion_matrix(y if has_labels else pseudo_labels, predictions, labels=[0, 1]).tolist()
 
         config_dict = {
             "contamination": self._contamination,

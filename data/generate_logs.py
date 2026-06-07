@@ -276,6 +276,7 @@ def generate_events_for_user(
             action_data = generate_action(user, is_anomaly, event_count)
 
             event_dt = ts.replace(tzinfo=None)
+            # Ground truth: anomaly = risk_score > 0.3 (used for ML evaluation)
             event = {
                 "event_id": action_data["event_id"],
                 "timestamp": ts.isoformat(),
@@ -294,7 +295,13 @@ def generate_events_for_user(
 
 
 def calculate_risk_scores(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Рассчитывает risk_score для каждого события на основе контекста."""
+    """Рассчитывает risk_score и ground-truth is_anomaly для каждого события.
+
+    Ground truth: событие помечается как аномалия если:
+    - risk_score >= 0.5, ИЛИ
+    - действие подозрительное (ACTION_SUSPICIOUS)
+    Эта колонка используется для оценки качества ML-моделей (precision/recall).
+    """
     for event in events:
         score = 0.0
 
@@ -325,6 +332,8 @@ def calculate_risk_scores(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             score += 0.15
 
         event["risk_score"] = min(score, 1.0)
+        # Ground truth: событие — аномалия если risk_score >= 0.5 или подозрительное действие
+        event["is_anomaly"] = 1 if (event["risk_score"] >= 0.5 or event["action"] in ACTIONS_SUSPICIOUS) else 0
 
     return events
 
@@ -376,7 +385,7 @@ def generate_dataset(
         "role", "department", "action", "resource", "location_city",
         "location_country", "ip_address", "device_type", "browser",
         "os", "bytes_sent", "bytes_received", "status", "risk_score",
-        "hour", "day_of_week",
+        "hour", "day_of_week", "is_anomaly",
     ]
     with open(events_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -386,10 +395,11 @@ def generate_dataset(
     anomaly_count = sum(1 for u in users if u["is_anomaly_user"])
     event_count = len(events)
     anomaly_events = sum(1 for e in events if e["risk_score"] > 0.3)
+    ground_truth_anomalies = sum(1 for e in events if e.get("is_anomaly", 0) == 1)
 
     print(f"[UEBA Data Gen] Generated:")
     print(f"  - Users: {user_count} (anomaly: {anomaly_count})")
-    print(f"  - Events: {event_count} (high risk: {anomaly_events})")
+    print(f"  - Events: {event_count} (high risk: {anomaly_events}, ground truth: {ground_truth_anomalies} anomalies)")
     print(f"  - Files: {events_file}, {users_file}")
 
     return events_file, users_file

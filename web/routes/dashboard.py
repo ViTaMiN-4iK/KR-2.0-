@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import requests
+
 from flask import Blueprint, render_template, request, current_app
-import httpx
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -16,24 +17,25 @@ def _fetch_stats() -> dict:
     """Получает данные с API."""
     base = get_api_url()
     try:
-        with httpx.Client(timeout=10.0) as client:
-            alerts_resp = client.get(base + "/api/alerts/stats")
+        with requests.Session() as s:
+            alerts_resp = s.get(base + "/api/alerts/stats", timeout=10.0)
             alerts_data = alerts_resp.json() if alerts_resp.status_code == 200 else {}
 
-            alerts_list_resp = client.get(
+            alerts_list_resp = s.get(
                 base + "/api/alerts/",
                 params={"page_size": 10},
+                timeout=10.0,
             )
             recent_alerts = []
             if alerts_list_resp.status_code == 200:
                 recent_alerts = alerts_list_resp.json().get("alerts", [])
 
-            users_resp = client.get(base + "/api/users", params={"page_size": 20})
+            users_resp = s.get(base + "/api/users", params={"page_size": 20}, timeout=10.0)
             users_data = users_resp.json() if users_resp.status_code == 200 else {}
 
         return alerts_data, recent_alerts, users_data, None
-    except httpx.ConnectError:
-        return {}, [], {}, "API недоступен"
+    except requests.RequestException as e:
+        return {}, [], {}, f"API недоступен: {e}"
 
 
 @dashboard_bp.route("/dashboard")
@@ -52,19 +54,20 @@ def index():
 def dashboard_stats():
     base = get_api_url()
     try:
-        with httpx.Client(timeout=10.0) as client:
-            alerts_resp = client.get(base + "/api/alerts/stats")
+        with requests.Session() as s:
+            alerts_resp = s.get(base + "/api/alerts/stats", timeout=10.0)
             alerts_data = alerts_resp.json() if alerts_resp.status_code == 200 else {}
 
-            alerts_list_resp = client.get(
+            alerts_list_resp = s.get(
                 base + "/api/alerts/",
                 params={"page_size": 10, "status": "open"},
+                timeout=10.0,
             )
             recent_alerts = []
             if alerts_list_resp.status_code == 200:
                 recent_alerts = alerts_list_resp.json().get("alerts", [])
 
-            users_resp = client.get(base + "/api/users/", params={"page_size": 20})
+            users_resp = s.get(base + "/api/users/", params={"page_size": 20}, timeout=10.0)
             users_data = users_resp.json() if users_resp.status_code == 200 else {}
 
         return {
@@ -72,7 +75,7 @@ def dashboard_stats():
             "recent_alerts": recent_alerts,
             "users": users_data,
         }
-    except httpx.ConnectError:
+    except requests.RequestException as e:
         return {
             "alerts": {},
             "recent_alerts": [],

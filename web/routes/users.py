@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import requests
+
 from flask import Blueprint, render_template, request, current_app
-import httpx
 
 users_bp = Blueprint("users", __name__, url_prefix="/users")
 
@@ -28,8 +29,8 @@ def list_users():
         params["risk_status"] = risk_status
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.get(get_api_url() + "/api/users", params=params)
+        with requests.Session() as s:
+            resp = s.get(get_api_url() + "/api/users", params=params, timeout=10.0)
             resp.raise_for_status()
             data = resp.json()
 
@@ -44,31 +45,32 @@ def list_users():
                 "risk_status": risk_status,
             },
         )
-    except httpx.ConnectError:
+    except requests.ConnectionError:
         return render_template("users.html", users=[], total=0)
 
 
 @users_bp.route("/<user_id>")
 def user_profile(user_id: str):
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with requests.Session() as s:
             api = get_api_url()
-            resp = client.get(api + "/api/users/" + user_id)
+            resp = s.get(api + "/api/users/" + user_id, timeout=10.0)
             if resp.status_code == 404:
                 return render_template("user_profile.html", user=None, events=[], error="Пользователь не найден")
             resp.raise_for_status()
             user = resp.json()
 
-            events_resp = client.get(
+            events_resp = s.get(
                 api + "/api/users/" + user_id + "/events",
                 params={"page_size": 100},
+                timeout=10.0,
             )
             events = []
             if events_resp.status_code == 200:
                 events = events_resp.json().get("events", [])
 
         return render_template("user_profile.html", user=user, events=events, error=None)
-    except httpx.HTTPStatusError as e:
+    except requests.HTTPError as e:
         return render_template("user_profile.html", user=None, events=[], error=f"Ошибка API: {e.response.status_code}")
-    except httpx.ConnectError:
+    except requests.ConnectionError:
         return render_template("user_profile.html", user=None, events=[], error="API недоступен")

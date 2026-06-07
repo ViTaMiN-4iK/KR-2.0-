@@ -60,9 +60,9 @@ class AnomalyDetector:
     """Основной класс обнаружения аномалий в поведении пользователей."""
 
     RISK_THRESHOLDS = {
-        "critical": 0.9,
-        "high": 0.7,
-        "medium": 0.5,
+        "critical": 0.7,
+        "high": 0.5,
+        "medium": 0.3,
         "low": 0.0,
     }
 
@@ -109,7 +109,7 @@ class AnomalyDetector:
         if not available_features:
             raise ValueError("No feature columns available after transformation")
 
-        X = features_df[available_features].fillna(0).values
+        X = features_df[available_features].fillna(0).astype(np.float64).values
 
         # Метки (если есть)
         y: Optional[np.ndarray] = None
@@ -153,26 +153,46 @@ class AnomalyDetector:
         features_df = self._feature_engineer.transform(df)
 
         available_features = [c for c in self._feature_columns if c in features_df.columns]
-        X = features_df[available_features].fillna(0).values
+        X = features_df[available_features].fillna(0).astype(np.float64).values
 
         # Предсказание
         result = self._best_model.predict(X)
 
         alerts: list[AnomalyAlert] = []
 
-        # Оценка степени аномальности через нормализацию scores
+        # Оценка степени аномальности через percentile rank
+        # Isolation Forest: чем МЕНЬШЕ score, тем аномальнее
         scores = result.scores
-        if scores.max() != scores.min():
-            scores_normalized = (scores - scores.min()) / (scores.max() - scores.min())
-        else:
-            scores_normalized = np.zeros(len(scores))
 
         # Аномалии по модели
         anomaly_indices = np.where(result.anomaly_mask)[0]
 
-        for idx in anomaly_indices:
-            score_norm = float(scores_normalized[idx])
-            risk_level = self._get_risk_level(score_norm)
+        # Вычисляем percentile rank для всех аномалий
+        # Ранжируем аномалии по их "аномальности":
+        # Isolation Forest: чем МЕНЬШЕ score, тем аномальнее
+        anomaly_scores = scores[anomaly_indices]
+        # Ранг: argsort→argsort: самая аномальная (min score) → rank 1
+        anomaly_ranks = np.argsort(np.argsort(anomaly_scores)) / max(1, len(anomaly_indices) - 1)
+        # score_norm = 1 - rank: 1.0 = самая аномальная
+        anomaly_norms = 1.0 - anomaly_ranks
+
+        # Адаптивные пороги: делим аномалии на 4 группы по перцентилю
+        p75 = float(np.percentile(anomaly_norms, 75))
+        p50 = float(np.percentile(anomaly_norms, 50))
+        p25 = float(np.percentile(anomaly_norms, 25))
+
+        for i, idx in enumerate(anomaly_indices):
+            score_norm = float(anomaly_norms[i])
+
+            # Определяем уровень риска
+            if score_norm >= p75:
+                risk_level = "critical"
+            elif score_norm >= p50:
+                risk_level = "high"
+            elif score_norm >= p25:
+                risk_level = "medium"
+            else:
+                risk_level = "low"
 
             if score_norm < risk_threshold:
                 continue
@@ -222,28 +242,28 @@ class AnomalyDetector:
         reasons = []
 
         if features.get("is_night", 0) == 1:
-            reasons.append("действие в ночное время")
+            reasons.append("nighttime activity")
         if features.get("is_weekend", 0) == 1:
-            reasons.append("действие в выходной день")
+            reasons.append("weekend activity")
         if features.get("hour_deviation", 0) > 3:
-            reasons.append("необычное время активности")
+            reasons.append("unusual activity time")
         if features.get("high_volume_send", 0) == 1:
-            reasons.append("аномально большой объём отправленных данных")
+            reasons.append("abnormally high outbound data volume")
         if features.get("suspicious_combo", 0) == 1:
-            reasons.append("подозрительная комбинация: ночь + выходной")
+            reasons.append("suspicious combination: night + weekend")
         if features.get("is_failed", 0) == 1:
-            reasons.append("неудачная попытка действия")
+            reasons.append("failed action attempt")
         if features.get("bytes_sent_deviation", 0) > features.get(
             "baseline_bytes_sent_std", 0
         ) * 3:
-            reasons.append("значительное отклонение от типичного объёма данных")
+            reasons.append("significant deviation from typical data volume")
 
         action = event.get("action", "")
         if action in ["bulk_download", "data_exfiltration", "unauthorized_access"]:
-            reasons.append(f"подозрительное действие: {action}")
+            reasons.append(f"suspicious action: {action}")
 
         if not reasons:
-            reasons.append(f"общий скор аномальности {score:.2f}")
+            reasons.append(f"general anomaly score {score:.2f}")
 
         return "; ".join(reasons)
 
