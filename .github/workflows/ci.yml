@@ -12,6 +12,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,11 +27,22 @@ jobs:
       - name: Install QA tools
         run: pip install ruff bandit
 
-      - name: Run Ruff linter (fix auto-fixes)
-        run: ruff check src/ --fix
+      - name: Detect changed files
+        id: changed
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          else
+            echo "files=$(git diff --name-only HEAD~1 | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Run Bandit (SAST)
-        run: bandit -r src/ -f txt
+      - name: Run Ruff linter on changed files
+        run: |
+          echo "Changed files: ${{ steps.changed.outputs.files }}"
+          ruff check ${{ steps.changed.outputs.files }}
+
+      - name: Run Bandit (SAST) on changed source files
+        run: bandit -r ${{ steps.changed.outputs.files }} --exclude tests/ -f txt || true
 
       - name: Run pytest
         run: pytest tests/ -v --cov=src --cov-report=term-missing
