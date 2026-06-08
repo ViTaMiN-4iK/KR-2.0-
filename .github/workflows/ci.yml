@@ -54,5 +54,35 @@ jobs:
               sys.exit(r.returncode)
           "
 
+      - name: Run Bandit security scan
+        run: |
+          python -c "
+          import subprocess, sys
+
+          if '${{ github.event_name }}' == 'pull_request':
+              base = '${{ github.base_ref }}'
+              result = subprocess.run(
+                  ['git', 'diff', '--name-only', f'origin/{base}...HEAD'],
+                  capture_output=True, text=True
+              )
+          else:
+              result = subprocess.run(
+                  ['git', 'diff', '--name-only', 'HEAD~1'],
+                  capture_output=True, text=True
+              )
+
+          files = result.stdout.strip()
+          changed = files.split('\n') if files else []
+          src_files = [f for f in changed if f.startswith('src/')]
+
+          if not src_files:
+              print('No src/ files changed - skipping Bandit.')
+              sys.exit(0)
+
+          print('Bandit scan:', src_files)
+          r = subprocess.run(['bandit', '-r'] + src_files)
+          sys.exit(r.returncode)
+          "
+
       - name: Run pytest
         run: pytest tests/ -v --cov=src --cov-report=term-missing
