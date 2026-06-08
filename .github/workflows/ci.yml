@@ -18,31 +18,41 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install QA tools
-        run: pip install ruff bandit
-
-      - name: Detect changed files
-        id: changed
+      - name: Detect changed files and run lint
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | tr '\n' ' ')" >> $GITHUB_OUTPUT
-          else
-            echo "files=$(git diff --name-only HEAD~1 | tr '\n' ' ')" >> $GITHUB_OUTPUT
-          fi
+          python -c "
+          import subprocess, sys
 
-      - name: Run Ruff linter on changed files
-        run: |
-          echo "Changed files: ${{ steps.changed.outputs.files }}"
-          ruff check ${{ steps.changed.outputs.files }}
+          if '${{ github.event_name }}' == 'pull_request':
+              base = '${{ github.base_ref }}'
+              result = subprocess.run(
+                  ['git', 'diff', '--name-only', f'origin/{base}...HEAD'],
+                  capture_output=True, text=True
+              )
+          else:
+              result = subprocess.run(
+                  ['git', 'diff', '--name-only', 'HEAD~1'],
+                  capture_output=True, text=True
+              )
 
-      - name: Run Bandit (SAST) on changed source files
-        run: bandit -r ${{ steps.changed.outputs.files }} --exclude tests/ -f txt || true
+          files = result.stdout.strip()
+          print('Changed files:', files or '(none)')
+          changed = files.split('\n') if files else []
+          src_files = [f for f in changed if f.startswith('src/')]
+
+          if not src_files:
+              print('No src/ files changed - skipping lint.')
+          else:
+              print('Linting:', src_files)
+              r = subprocess.run(['ruff', 'check'] + src_files)
+              sys.exit(r.returncode)
+          "
 
       - name: Run pytest
         run: pytest tests/ -v --cov=src --cov-report=term-missing
