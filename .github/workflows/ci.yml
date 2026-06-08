@@ -1,0 +1,54 @@
+name: CI / Quality Checks
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Ruff (lint + format check)
+        run: |
+          pip install ruff
+          ruff check src/
+          ruff format --check src/
+
+      - name: Run Bandit (SAST)
+        run: |
+          pip install bandit
+          bandit -r src/ -f txt
+
+      - name: Run pytest
+        run: |
+          pytest tests/ -v --cov=src --cov-report=term-missing
+
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: docker-compose build
+
+      - name: Smoke test containers
+        run: |
+          docker-compose up -d
+          sleep 15
+          docker-compose logs --tail=20
+          docker-compose down

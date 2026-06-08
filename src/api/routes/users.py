@@ -72,8 +72,9 @@ def _build_user_profile(user_row: pd.Series | dict, events_sub: pd.DataFrame) ->
             if profile:
                 alert_max_score = profile.get("max_anomaly_score", 0.0)
                 alert_risk_status = profile.get("risk_status")
-        except Exception:
-            pass
+        except (KeyError, TypeError, ValueError) as e:
+            import logging
+            logging.warning(f"Failed to get user profile for {user_id}: {e}")
 
     # Итоговый макс скор = максимум из событий и алертов
     max_score = max(event_max_score, alert_max_score)
